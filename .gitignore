@@ -1,0 +1,4 @@
+venv
+flan-t5-base-local
+*bin
+*.pkl
