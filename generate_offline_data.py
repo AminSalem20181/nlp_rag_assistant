@@ -754,12 +754,8 @@ def infer_difficulty(question: str) -> str:
 
 
 def generate_dynamic_answer(question: str, concept_data: dict, concept_name: str) -> str:
-    """
-    بر اساس نوع سوال، پیشوند و پسوند، یک پاسخ کاملا منطبق و منحصر به فرد تولید می کند.
-    """
     q = question.lower()
     
-    # استخراج بخش‌های اصلی برای پاسخ‌دهی هوشمند
     base = concept_data.get("base", "")
     how = concept_data.get("how_it_works", "")
     why = concept_data.get("why_important", "")
@@ -769,7 +765,6 @@ def generate_dynamic_answer(question: str, concept_data: dict, concept_name: str
     
     parts = []
     
-    # 1. مدیریت نوع سوال (محتوای پاسخ)
     if "how does" in q or "work" in q:
         parts.append(how)
     elif "why" in q or "important" in q or "purpose" in q or "role" in q:
@@ -779,23 +774,18 @@ def generate_dynamic_answer(question: str, concept_data: dict, concept_name: str
     elif "limitation" in q or "drawback" in q or "disadvantage" in q:
         parts.append(limits)
     else:
-        # پیش‌فرض: تعریف کلی
         parts.append(base)
 
-    # 2. مدیریت پیشوندها و استایل‌ها (لحن پاسخ)
     if "in simple words" in q or "simple terms" in q or "for beginners" in q:
         parts.insert(0, f"Simply put, {concept_name.upper()} is used to make this concept easy to understand.")
     elif "technically" in q or "academically" in q or "in detail" in q or "hard" in q:
         parts.append("From a technical perspective, it involves protocol/system-level specifications and constraints.")
         
-    # 3. مدیریت پسوندها (اضافه کردن مثال یا جزئیات)
     if "with example" in q or "example" in q:
         parts.append(example)
     elif "briefly" in q or "briefly" in q:
-        # پاسخ بسیار کوتاه فقط با تعریف پایه
         return base
         
-    # پیوند زدن بخش‌ها با یکدیگر
     full_answer = " ".join([p for p in parts if p])
     return full_answer
 
@@ -855,7 +845,6 @@ def expand_dataset(dataset, target_size=3000):
     while len(expanded) < target_size:
         item = dataset[idx % len(dataset)]
         
-        # پیدا کردن اطلاعات اولیه مفهوم
         topic_name = item["topic"]
         concept = item["concept"]
         concept_data = TOPICS[topic_name]["concepts"][concept]
