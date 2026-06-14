@@ -247,7 +247,6 @@ def is_persian(text):
     return bool(re.search('[\u0600-\u06FF]', text))
 
 def translate_logic(text, target_lang="en"):
-    """استفاده از مدل برای ترجمه با پرامپت اصلاح شده برای جلوگیری از خروجی خالی"""
     prefix = "translate Persian to English: " if target_lang == "en" else "translate English to Persian: "
     inputs = tokenizer(prefix + text, return_tensors="pt", truncation=True)
     outputs = llm_model.generate(**inputs, max_new_tokens=100, num_beams=4)
@@ -265,35 +264,31 @@ def get_greeting(text):
 # -----------------------------
 # Core RAG Logic (Updated for Strict Offline Mode)
 # -----------------------------
-
-        
 def get_response(user_input):
     greeting = get_greeting(user_input)
-    if greeting: return greeting, []
+    if greeting:
+        return greeting, []
 
     is_fa = is_persian(user_input)
     working_query = translate_logic(user_input, "en") if is_fa else user_input
 
     sources = []
-    
+
     if app_mode == "Computer Knowledge":
         query_emb = embed_model.encode([working_query])
-        dist, idxs = index_data["nn"].kneighbors(query_emb, n_neighbors=1) # فقط نزدیک‌ترین سند
-        
-        if dist[0][0] > 0.75: # عدد را کمی کمتر کردیم تا حساس‌تر شود
+        dist, idxs = index_data["nn"].kneighbors(query_emb, n_neighbors=1)
+
+        if dist[0][0] > 0.75:
             msg = "Sorry, this topic is not in my computer database. Please try General Mode."
             return (translate_logic(msg, "fa") if is_fa else msg), []
-        
 
         sources = []
         for i in idxs[0]:
             raw_text = index_data["documents"][i]
             clean_text = raw_text.replace("Answer:", "\n**Answer :**")
             sources.append(clean_text)
-        
-        
-        context = index_data["documents"][idxs[0][0]]
 
+        context = index_data["documents"][idxs[0][0]]
         match = re.search(r"Answer\s*:?\s*(.*)", context, re.IGNORECASE | re.DOTALL)
 
         if match:
@@ -307,26 +302,64 @@ def get_response(user_input):
             return (translate_logic(msg, "fa") if is_fa else msg), []
 
     elif app_mode == "Hybrid Mode":
-        # ترکیبی (مثل قبل)
         query_emb = embed_model.encode([working_query])
         dist, idxs = index_data["nn"].kneighbors(query_emb, n_neighbors=2)
-        context = "\n".join([index_data["documents"][i] for i in idxs[0]])
+        context = "\n\n".join([index_data["documents"][i] for i in idxs[0]])
         sources = [index_data["documents"][i] for i in idxs[0]]
-        prompt = f"Context: {context}\nQuestion: {working_query}\nAnswer:"
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
-        outputs = llm_model.generate(**inputs, max_new_tokens=250)
-        answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
-    else: # General Mode
-        prompt = f"Answer this question: {working_query}"
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
-        outputs = llm_model.generate(**inputs, max_new_tokens=250)
-        answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        prompt = f"""
+                    You are a helpful AI assistant specialized in computer science and networking.
+
+                    Use the context below to answer the question in a detailed, clear, and structured way.
+                    Explain step by step whenever possible.
+                    Include examples if they help understanding.
+                    Do not give a short answer.
+
+                    Context:
+                    {context}
+
+                    Question:
+                    {working_query}
+
+                    Detailed Answer:
+                    """
+
+        answer = generate_long_answer(prompt)
+
+    else:  # General Knowledge
+        prompt = f"""
+                    You are a helpful AI assistant.
+
+                    Answer the following question in a detailed, clear, and well-structured way.
+                    Explain the topic step by step and provide examples where useful.
+                    Do not give a short answer.
+
+                    Question:
+                    {working_query}
+
+                    Detailed Answer:
+                    """
+
+        answer = generate_long_answer(prompt)
 
     if is_fa:
         answer = translate_logic(answer, "fa")
-    
+
     return answer, sources
+
+        
+def generate_long_answer(prompt, max_new_tokens=300, min_new_tokens=80):
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
+    outputs = llm_model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        min_new_tokens=min_new_tokens,
+        num_beams=4,
+        length_penalty=1.2,
+        no_repeat_ngram_size=3,
+        early_stopping=True
+    )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 
 # -----------------------------
@@ -338,13 +371,11 @@ def get_response(user_input):
 with st.sidebar:
     st.title("🧠 ByteMind")
     
-    # --- بخش تنظیمات (همیشه بالا می‌ماند) ---
     st.subheader("Settings")
     app_mode = st.radio("Select Mode", ["Computer Knowledge", "General Knowledge", "Hybrid Mode"])
     
     st.divider()
 
-    # --- بخش ایجاد چت جدید ---
     st.subheader("New Chat")
     col_input, col_btn = st.columns([3, 1])
     
@@ -358,17 +389,14 @@ with st.sidebar:
                 st.session_state.current_chat = new_chat_name
                 st.rerun()
 
-    # --- بخش لیست چت‌ها (این بخش می‌تواند طولانی شود و اسکرول بخورد) ---
     st.subheader("Your History")
     
-    # برای زیباتر شدن، لیست چت‌ها را در یک کانتینر قرار می‌دهیم
     chat_container = st.container()
     with chat_container:
         for chat_name in list(st.session_state.chats.keys()):
             col_name, col_edit, col_del = st.columns([4, 1, 1])
             
             with col_name:
-                # هایلایت کردن چت فعلی با استفاده از استایل دکمه
                 is_current = (chat_name == st.session_state.current_chat)
                 button_label = f"💬 {chat_name}" if is_current else chat_name
                 if st.button(button_label, key=f"select_{chat_name}", use_container_width=True):
@@ -389,12 +417,10 @@ with st.sidebar:
                         st.session_state.current_chat = "Main Chat"
                     st.rerun()
 
-    # --- بخش تغییر نام (فقط وقتی فعال شود ظاهر می‌شود) ---
     if st.session_state.rename_mode:
         st.info(f"Renaming: {st.session_state.rename_mode}")
         new_name = st.text_input("Enter new name:", key="rename_input")
         
-        # استفاده از ستون‌های برابر برای فضای کافی
         col_conf, col_canc = st.columns(2)
         with col_canc:
             # فقط ایموجی برای اشغال فضای کمتر
@@ -419,13 +445,13 @@ st.title(f"💬 {st.session_state.current_chat}")
 # Display History
 for msg in st.session_state.chats[st.session_state.current_chat]:
     with st.chat_message(msg["role"]):
-        st.code(msg["content"], language=None)
+        st.markdown(msg["content"])
 
 # Chat Input
 if prompt := st.chat_input("Ask me anything..."):
     st.session_state.chats[st.session_state.current_chat].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.code(prompt, language=None)
+        st.markdown(prompt)
 
     with st.chat_message("assistant"):
         with st.spinner("Processing..."):
