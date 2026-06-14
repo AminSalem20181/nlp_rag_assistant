@@ -197,7 +197,6 @@ def get_response(user_input):
 
                     Detailed Answer:
                     """
-
         answer = generate_long_answer(prompt)
 
     if is_fa:
@@ -217,7 +216,11 @@ def generate_long_answer(prompt, max_new_tokens=300, min_new_tokens=80):
         no_repeat_ngram_size=3,
         early_stopping=True
     )
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    answer = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    if "Do not give a short answer" in answer:
+        answer.pop("Do not give a short answer")
+
+    return answer
 
 
 # -----------------------------
@@ -276,7 +279,6 @@ with st.sidebar:
         
         col_conf, col_canc = st.columns(2)
         with col_canc:
-            # فقط ایموجی برای اشغال فضای کمتر
             if st.button("❌", use_container_width=True, help="Cancel"):
                 st.session_state.rename_mode = None
                 st.rerun()
@@ -297,14 +299,13 @@ if prompt := st.chat_input("Ask ByteMind..."):
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            ans, srcs, tag = get_response(prompt)
+            ans, srcs = get_response(prompt)
             st.markdown(ans)
-            st.caption(f"Response generated via: {tag}")
 
             if srcs:
                 with st.expander("Reference Documents"):
                     for s in srcs: st.write(s)
             
             st.session_state.chats[st.session_state.current_chat].append({
-                "role": "assistant", "content": ans, "sources": srcs, "tag": tag
+                "role": "assistant", "content": ans, "sources": srcs
             })
